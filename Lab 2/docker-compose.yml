@@ -75,6 +75,6 @@ services:
       DB_SERVER_HOST: postgres-zabbix
       ZBX_SERVER_HOST: zabbix-back
 
-  volumes:
-    nc-data:
-      zabbix-db:
+volumes:
+  nc-data:
+  zabbix-db:

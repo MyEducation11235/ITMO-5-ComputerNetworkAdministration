@@ -1,403 +1,199 @@
-# Лабораторная работа 1. HA Postgres Cluster
+# Лабораторная работа 2. 
 
 Выполнил: Проскуряков Роман Владимирович
 
-## Часть 1. Поднимаем Postgres
+## Часть 1. Логирование
 
 <details>
-  <summary>Dockerfile</summary>
+  <summary>docker-compose.yml</summary>
 
 ```
-FROM postgres:15
-
-# Ставим нужные для Patroni зависимости
-RUN apt-get update -y && \
-	apt-get install -y netcat-openbsd python3-pip curl python3-psycopg2 python3-venv iputils-ping
-
-# Используем виртуальное окружение, доустанавливаем, собственно, Patroni
-RUN python3 -m venv /opt/patroni-venv && \
-	/opt/patroni-venv/bin/pip install --upgrade pip && \
-	/opt/patroni-venv/bin/pip install patroni[zookeeper] psycopg2-binary
-
-# Копируем конфигурацию для двух узлов кластера Patroni
-COPY postgres0.yml /postgres0.yml
-COPY postgres1.yml /postgres1.yml
-
-ENV PATH="/opt/patroni-venv/bin:$PATH"
-
-USER postgres
-
-#CMD не задаем, т.к. все равно будем переопределять его далее в compose
 ```
 </details>
 
 <details>
-  <summary>Конечный docker-compose.yml</summary>
+  <summary>promtail_config.yml</summary>
 
 ```
-services:
-  pg-master:
-    build: .
-    image: localhost/postgres:patroni # имя для кастомного образа из Dockerfile, можно задать любое
-    container_name: pg-master # Будущий адрес первой ноды
-    restart: always
-    hostname: pg-master
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      PGDATA: '/var/lib/postgresql/data/pgdata'
-    expose:
-      - 8008
-    ports:
-      - 5433:5432
-    volumes:
-      - pg-master:/var/lib/postgresql/data
-    command: patroni /postgres0.yml
-
-  pg-slave:
-    build: .
-    image: localhost/postgres:patroni # имя для кастомного образа из Dockerfile, можно задать любое
-    container_name: pg-slave # Будущий адрес второй ноды
-    restart: always
-    hostname: pg-slave
-    expose:
-      - 8008
-    ports:
-      - 5434:5432
-    volumes:
-      - pg-slave:/var/lib/postgresql/data
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      PGDATA: '/var/lib/postgresql/data/pgdata'
-    command: patroni /postgres1.yml
-
-  zoo:
-    image: confluentinc/cp-zookeeper:7.7.1
-    container_name: zoo # Будущий адрес зукипера
-    restart: always
-    hostname: zoo
-    ports:
-      - 2181:2181
-    environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
-
-  haproxy:
-    image: haproxy:3.0
-    container_name: postgres_entrypoint # Это будет адрес подключения к БД, можно выбрать любой
-    ports:
-      - 5432:5432 # Это будет порт подключения к БД, можно выбрать любой
-      - 7000:7000
-    depends_on: # Не забываем убедиться, что сначала все корректно поднялось
-      - pg-master
-      - pg-slave
-      - zoo
-    volumes:
-      - ./haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg
-    
-volumes:
-  pg-master:
-  pg-slave:
 ```
 </details>
 
-<details>
-  <summary>postgres0.yml</summary>
-
-```
-scope: my_cluster # Имя нашего кластера
-name: postgresql0 # Имя первой ноды
-
-restapi: # Адреса первой ноды
-  listen: pg-master:8008
-  connect_address: pg-master:8008
-
-zookeeper:
-  hosts:
-    - zoo:2181 # Адрес Zookeeper
-
-bootstrap:
-  dcs:
-    ttl: 30
-    loop_wait: 10
-    retry_timeout: 10
-    maximum_lag_on_failover: 10485760
-    master_start_timeout: 300
-    synchronous_mode: true
-    postgresql:
-      use_pg_rewind: true
-      use_slots: true
-      parameters:
-        wal_level: replica
-        hot_standby: "on"
-        wal_keep_segments: 8
-        max_wal_senders: 10
-        max_replication_slots: 10
-        wal_log_hints: "on"
-        archive_mode: "always"
-        archive_timeout: 1800s
-        archive_command: mkdir -p /tmp/wal_archive && test ! -f /tmp/wal_archive/%f && cp %p /tmp/wal_archive/%f
-  pg_hba:
-  - host replication replicator 0.0.0.0/0 md5
-  - host all all 0.0.0.0/0 md5
-
-postgresql:
-  listen: 0.0.0.0:5432
-  connect_address: pg-master:5432 # Адрес первой ноды
-  data_dir: /var/lib/postgresql/data/postgresql0 # Место хранения данных первой ноды
-  bin_dir: /usr/lib/postgresql/15/bin
-  pgpass: /tmp/pgpass0
-  authentication:
-    replication: # логопасс для репликаци, при желании можно поменять
-      username: replicator
-      password: rep-pass
-    superuser: # админский логопасс, при желании можно поменять (в том числе в файле compose)
-      username: postgres
-      password: postgres
-  parameters:
-    unix_socket_directories: '.'
-
-watchdog:
-  mode: off
-
-tags:
-  nofailover: false
-  noloadbalance: false
-  clonefrom: false
-  nosync: false
-```
-</details>
-
-<details>
-  <summary>postgres1.yml</summary>
-
-```
-scope: my_cluster # Имя нашего кластера
-name: postgresql1 # Имя второй ноды
-
-restapi: # Адреса первой ноды
-  listen: pg-slave:8008
-  connect_address: pg-slave:8008
-
-zookeeper:
-  hosts:
-    - zoo:2181 # Адрес Zookeeper
-
-bootstrap:
-  dcs:
-    ttl: 30
-    loop_wait: 10
-    retry_timeout: 10
-    maximum_lag_on_failover: 10485760
-    master_start_timeout: 300
-    synchronous_mode: true
-    postgresql:
-      use_pg_rewind: true
-      use_slots: true
-      parameters:
-        wal_level: replica
-        hot_standby: "on"
-        wal_keep_segments: 8
-        max_wal_senders: 10
-        max_replication_slots: 10
-        wal_log_hints: "on"
-        archive_mode: "always"
-        archive_timeout: 1800s
-        archive_command: mkdir -p /tmp/wal_archive && test ! -f /tmp/wal_archive/%f && cp %p /tmp/wal_archive/%f
-  pg_hba:
-  - host replication replicator 0.0.0.0/0 md5
-  - host all all 0.0.0.0/0 md5
-
-postgresql:
-  listen: 0.0.0.0:5432
-  connect_address: pg-slave:5432 # Адрес первой ноды
-  data_dir: /var/lib/postgresql/data/postgresql1 # Место хранения данных первой ноды
-  bin_dir: /usr/lib/postgresql/15/bin
-  pgpass: /tmp/pgpass1
-  authentication:
-    replication: # логопасс для репликаци, при желании можно поменять
-      username: replicator
-      password: rep-pass
-    superuser: # админский логопасс, при желании можно поменять (в том числе в файле compose)
-      username: postgres
-      password: postgres
-  parameters:
-    unix_socket_directories: '.'
-
-watchdog:
-  mode: off
-
-tags:
-  nofailover: false
-  noloadbalance: false
-  clonefrom: false
-  nosync: false
-```
-</details>
-
-<details>
-  <summary>haproxy.cfg</summary>
-
-```
-global
-  maxconn 100
-
-defaults
-  log global
-  mode tcp
-  retries 3
-  timeout client 30m
-  timeout connect 4s
-  timeout server 30m
-  timeout check 5s
-
-listen stats
-  mode http
-  bind *:7000
-  stats enable
-  stats uri /
-
-listen postgres
-  bind *:5432 # Выбранный порт из docker-compose.yml
-  option httpchk GET /health
-  http-check expect status 200 # Описываем нашу проверку доступности (в данном случае обычный HTTP-пинг)
-  default-server inter 3s fall 3 rise 2 on-marked-down shutdown-sessions
-  server postgresql_pg_master_5432 pg-master:5432 maxconn 100 check port 8008 # Адрес первой ноды постгреса
-  server postgresql_pg_slave_5432 pg-slave:5432 maxconn 100 check port 8008 # Адрес второй ноды постгреса
-```
-</details>
-
-Собираем докер образ из докер файла
-	
-`docker build --no-cache -f Dockerfile -t localhost/postgres:patroni .`
-
-[<img src="ReportPhoto/build.png" />]()
-
-Запустим контейнеры через docker compose
+Запускаем compose файл.
 
 `docker compose up -d`
 
-Эта команда запустит:
-* pg-master (Postgres + Patroni, порт 5433)
-* pg-slave (Postgres + Patroni, порт 5434)
-* zoo (Zookeeper, порт 2181)
+dockerStart.png
 
-`docker compose ps`
+Создаём аккаун в Nextcloud (http://127.0.0.1:8080)
 
-[<img src="ReportPhoto/compose.png" />]()
+NextcloudStart.png
 
-Узнаём какая из нод стала главной:
+проверяем, что логи “пошли” в нужный нам файл `/var/www/html/data/nextcloud.log`
 
-`docker compose logs pg-master | grep leader`
+`docker exec -it nextcloud bash`
 
-`docker compose logs pg-slave | grep leader`
+`cat data/nextcloud.log`
 
-[<img src="ReportPhoto/whoLeader.png" />]()
+nextCloudLog.png
 
-Основной является *pg-slave*
+Проверяем в логах promtail, что он “подцепил” нужный нам log-файл: должны быть строчки, содержащие `msg="Seeked /opt/nc_data/nextcloud.log ..."`
 
-Проверяем, что зукипер запустился
+`docker compose logs promtail`
 
-`docker logs zoo | grep 2181`
+promtailInitLogs.png
 
-[<img src="ReportPhoto/zooStarted.png" />]()
+## Часть 2. Мониторинг
 
-### Вопрос о разнице между expose и ports в Docker Compose
-expose делает порт доступным только для других контейнеров в той же сети Docker, но не публикует его на хост-машине. ports публикует порт на хост-машине, позволяя внешним подключениям. В данной лабораторной порт 8008 используется Patroni для внутреннего API, поэтому его достаточно экспонировать только между контейнерами. Порты 5433 и 5434 проброшены на хост для подключения клиентов к БД.
-
-### Вопрос о пересборке образа при изменениях в Docker Compose
-При обычном docker-compose up образ не пересобирается, если он уже существует. Если изменить файлы postgresX.yml, которые копируются в образ через COPY в Dockerfile, потребуется пересборка с docker-compose up --build. Если же изменить только содержимое Dockerfile, пересборка также потребуется. Однако если конфигурационные файлы монтируются через volumes, изменения применяются без пересборки.
-
-# Часть 2 Проверяем репликацию
-
-Подключаемся к основной бд (pg-slave) и редиактируем её
+<details>
+  <summary>template.yml</summary>
 
 ```
-CREATE TABLE test_table (id int, data varchar);
-INSERT INTO test_table VALUES('2', 'data for replic');
-SELECT * FROM test_table
 ```
+</details>
 
-Изменения прошли успешно.
+Подключаемся к веб-интерфейсу Zabbix (http://localhost:8082). Креды *Admin* | *zabbix*
 
-[<img src="ReportPhoto/editLeader.png" />]()
+Делаем import кастомного шаблона (template.yml) в zabbix для мониторинга nextcloud.
 
-Проверяем на реплике (pg-master).
+templateImport.png
 
-`SELECT * FROM test_table`
+Чтобы Zabbix и Nextcloud могли общаться по своим коротким именам внутри докеровской сети, в некстклауде необходимо “разрешить” это имя. Для этого
+нужно зайти на контейнер некстклауда под юзером www-data
 
-Получили те же данные.
+`docker exec -u www-data -it nextcloud bash`
 
-[<img src="ReportPhoto/lookingReplic.png" />]()
+и выполнить команду
 
-Пробуем изменить реплику (pg-master) напрямую
+`php occ config:system:set trusted_domains 1 --value="nextcloud"`
 
-`INSERT INTO test_table VALUES('3', 'data error')`
+Создаём хоста в Zabbix. Чтобы он знал, что ему слушать.
 
-Получаем ошибку:
-`ERROR:  cannot execute INSERT in a read-only transaction`
+CreateHost.png
 
-[<img src="ReportPhoto/errorEdit.png" />]()
+Получаем первые данные с хоста *healhy*
 
-# Часть 3 Делаем высокую доступность
+monitoring1.png
 
-Перезапускаем проект после изменений в `docker-compose.yml`. Для этого:
+Попробуем нарушить работу тестового сервиса.
 
-Удаляем ранее поднятые контейнеры
+`docker exec -u www-data -it nextcloud bash`
 
-`docker compose down`
+ProblemConsole.png
 
-И запускаем заново
+Создаём проблему:
 
-`docker compose up -d`
+`php occ maintenance:mode --on`
 
-и проверяем, что всё работает так же как до этого.
+Problem.png
 
-[<img src="ReportPhoto/restart.png" />]()
+Возвращаем как было.
 
-Через несколько секунд проверяем, что HAproxy тоже начал работать
+`php occ maintenance:mode --off`
 
-`docker logs postgres_entrypoint`
+ProblemResolved.png
 
-[<img src="ReportPhoto/haproxyLogs.png" />]()
+## Часть 3. Визуализация
 
-Проверяем что через порт HAProxy получаем те же данные, что записаны в бд.
+В Grafana установим плагин Zabbix
 
-[<img src="ReportPhoto/haproxyConnected.png" />]()
+Команда устанавливает слишком новую версию Zabbix
 
-Принудительно отключаем ноду текущего мастера (pg-slave):
+~~`docker exec -it grafana bash -c "grafana cli plugins install alexanderzobnin-zabbix-app"`~~
 
-`docker stop pg-slave`
+#### Вместо этого установим версию совместимую с grafana:11.2.0
 
-И видим, что реплика перехватила подхватила работу и стала лидирующей нодой.
+Заходим в контейнер
 
-[<img src="ReportPhoto/stopMaster.png" />]()
+`docker exec -it grafana bash`
 
-Пытаемся добавить новую таблицу sql. Она добавляется на единственную активную ноду.
+Плагины Grafana лежат в папке `/var/lib/grafana/plugins`
 
-```
-CREATE TABLE new_table (id int, data varchar);
-INSERT INTO new_table VALUES('2', 'new');
-SELECT * FROM test_new
-```
+`cd /var/lib/grafana/plugins`
 
-[<img src="ReportPhoto/replicUpdated.png" />]()
+Качаем архив нужной версии (5.2.1 для grafana:11.2.0)
 
-Запускаем старого мастера (pg-slave) обратно
+`wget https://github.com/grafana/grafana-zabbix/releases/download/v5.2.1/alexanderzobnin-zabbix-app-5.2.1.zip`
 
-`docker start pg-slave`
+installZabbixDowngrade.png
 
-[<img src="ReportPhoto/restartMaster.png" />]()
+Разархивируем архив
 
-Проверяем, что он получил изменения, сделанные в моменте пока он не работал.
+`unzip alexanderzobnin-zabbix-app-5.2.1.zip`
 
-[<img src="ReportPhoto/oldmasterUpdated.png" />]()
+unzip.png
 
-Теперь старый масте стал репликой. Роли поменялись местами.
+После установки плагина любым из способов нужно выполнить рестарт
 
-[<img src="ReportPhoto/oldmasterNowIsReplic.png" />]()
+`docker restart grafana`
+
+grafaneResart.png
+
+#### Заходим в grafana (http://localhost:3000)
+
+Проверяем что установлена нужная версия
+
+showWersion.png
+
+Активируем плагин Zabbix (Enable)
+
+ActiviteZabbix.png
+
+#### Подключаем Zabbix к Grafana (http://zabbix-front:8080/api_jsonrpc.php)
+
+addZabbix.png
+
+Успешно
+
+zabbixSuccess.png
+
+#### Подключаем Loki к Grafana (http://loki:3100)
+
+AddLoki.png
+
+Успешно
+
+lokiSuccess.png
+
+В Explore получаем логи Zabbix
+
+zabbixLogs.png
+
+В Explore получаем логи loki
+
+lokiLogs.png
+
+дашборд датасурсов Zabbix - график доступности по времени
+
+zabbixDasboard.png
+
+дашборд датасурсов Loki - таблица с логами
+
+lokiDashboard.png
+
+## Ответы на вопросы
+
+### 1. Чем SLO отличается от SLA?
+
+*SLA (Service Level Agreement)* — формальный документ, договор между поставщиком услуги и клиентом. Фиксирует минимально приемлемый уровень работы сервиса и последствия за его невыполнение.
+
+Пример: Облачный сервис гарантирует 99.9% доступности в месяц. Если доступность упадет ниже, клиент получит 10% от месячной платы.
+
+*SLO (Service Level Objective)* — внутренний, измеримый и конкретный целевой показатель для ключевых характеристик сервиса. Позволяет определить, насколько надежным должен быть сервис, чтобы удовлетворять пользователей и с запасом выполнять условия SLA. Это ориентир для принятия инженерных решений.
+
+Пример: "Мы ставим себе внутреннюю цель (SLO) — 99.95% доступности, чтобы с уверенностью гарантировать клиентам (SLA) 99.9%."
+
+### 2. Чем отличается инкрементальный бэкап от дифференциального?
+
+*Инкрементальный* — копирует только изменения, сделанные с момента предыдущего бэкапа ЛЮБОГО ТИПА. Для восстановления нужна цепочка архивов: последний полный и ВСЕ последующие инкрементальные.
+
+*Дифференциальный* — копирует все изменения, сделанные с момента последнего ПОЛНОГО бэкапа. Для восстановления нужны два архива: последний полный и последний дифференциальный.
+
+### 3. В чем разница между мониторингом и observability?
+
+*Мониторинг* — это набор инструментов и практик для слежения за известными метриками и состояниями системы.
+
+*Observability (наблюдаемость)* — это свойство системы, позволяющее по её внешним выводам понимать её внутреннее состояние и находить неизвестные и непредвиденные проблемы.
 
 ## Вывод
 
-В ходе работы был успешно развернут отказоустойчивый кластер PostgreSQL. Использование Patroni в связке с ZooKeeper позволило автоматизировать процесс перевыборов лидера при отказе, а HAProxy обеспечил прозрачное для пользователя переключение между узлами. Кластер сохраняет работоспособность и целостность данных даже при выходе из строя одного из серверов БД. Однако приходится платить за это избыточностью данных.
+В ходе лабораторной работы была развернута и настроена система логирования на базе Loki, подключён Zabbix для мониторинга сервиса Nextcloud, выполнена интеграция с Grafana и созданы дашборды. Все компоненты успешно взаимодействуют между собой, обеспечивая наблюдение за сервисом.

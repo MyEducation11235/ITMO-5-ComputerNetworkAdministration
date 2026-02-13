@@ -20,15 +20,15 @@
 
 `ansible --version`
 
-installAnsible.png
+![](ReportPhoto/installAnsible.png)
 
-После создания конфигов, вроверяем что они подцепились
+После создания конфигов, проверяем, что они подцепились
 
-withConfig.png
+![](ReportPhoto/withConfig.png)
 
 Проверяем, что сервер с Ansible подключился к “клиенту” (в нашем случае это одна и та же машина, localhost)
 
-checkAnsimble.png
+![](ReportPhoto/checkAnsimble.png)
 
 Создаем текстовый файл с производным содержимым, через модуль shell
 
@@ -42,7 +42,7 @@ checkAnsimble.png
 
 `ansible my_servers -c local -m file -a 'path=./test.txt state=absent'`
 
-createDelTest.png
+![](ReportPhoto/createDelTest.png)
 
 ## Часть 2. Установка Caddy
 
@@ -56,7 +56,7 @@ createDelTest.png
 
 `tree`
 
-caddyDeploy.png
+![](ReportPhoto/caddyDeploy.png)
 
 <details>
   <summary>roles/caddy_deploy/tasks/main.yml</summary>
@@ -123,13 +123,13 @@ caddyDeploy.png
 
 `ansible-playbook caddy_deploy.yml --ask-become-pass`
 
-playBookStart.png
+![](ReportPhoto/playBookStart.png)
 
-page1.png
+![](ReportPhoto/page1.png)
 
 ## Часть 3. Домен и настройка Caddyfile
 
-duckdns.org не работал, да и внешнего ip у меня нет. Попробую вместо своего доменого имени использовать localhost. Это же тоже своего рода доменое имя?)
+duckdns.org не работал, да и внешнего ip у меня нет. Попробую вместо своего доменное имени использовать localhost. Это же тоже своего рода доменное имя?)
 
 <details>
   <summary>roles/caddy_deploy/templates/Caddyfile.j2</summary>
@@ -150,7 +150,7 @@ duckdns.org не работал, да и внешнего ip у меня нет.
 
 Пишем путь `/var/log/caddy/cadde_access.log` вместо `/var/log/caddy_access.log`, чтобы избежать ошибки недостатка прав как ниже.
 
-configError.png
+![](ReportPhoto/configError.png)
 
 <details>
   <summary>roles/caddy_deploy/vars/main.yml</summary>
@@ -202,11 +202,11 @@ localhost {
 
 Сертификат нам никто не выдавал поэтому предупреждает нас.
 
-noSertificate.png
+![](ReportPhoto/noSertificate.png)
 
 Но в целом работает
 
-https.png
+![](ReportPhoto/https.png)
 
 ## Расширение функционала
 
@@ -283,17 +283,17 @@ https.png
 
 * В каталоге `/var/www/localhost` появится `index.html` и он будет отображаться на сайте
 
-page2.png
+![](ReportPhoto/page2.png)
 
 * Caddy будет обслуживать его с добавленными заголовками
 
 `curl -k -I https://localhost`
 
-headers.png
+![](ReportPhoto/headers.png)
 
 ## Плейбук для управления файлом
 
-Напишем плейбук который выпонит: 
+Напишем плейбук который выпол	нит: 
 
 * создаст файл ./test.txt с содержимым test_file_content
 
@@ -338,11 +338,12 @@ headers.png
 ```
 </details>
 
-fileMenegment.png
+![](ReportPhoto/fileMenegment.png)
 
 # Вывод
 
-Как по мне проще написать какой нибудь bush файл - больше контроля, меньше неожиданных ошибок, да и писать проще, но наверное, я не понял, чем универсальнее использование ansible.
+Как по мне проще написать какой-нибудь bush файл - больше контроля, меньше неожиданных ошибок, да и писать проще, но наверное, я не понял, чем универсальнее использование ansible.
+
 Caddy - довольно удобно и быстро, особенно для тестовых проектов.
 
 

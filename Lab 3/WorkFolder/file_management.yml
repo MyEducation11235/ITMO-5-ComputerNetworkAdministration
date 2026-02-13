@@ -1,0 +1,28 @@
+---
+- name: Управление файлом test.txt
+  hosts: localhost
+  gather_facts: no
+
+  tasks:
+    - name: Создать файл с начальным содержимым
+      ansible.builtin.copy:
+        dest: ./test.txt
+        content: "test_file_content"
+
+    - name: Изменить содержимое файла
+      ansible.builtin.copy:
+        dest: ./test.txt
+        content: "новое содержимое файла"
+
+    - name: Прочитать содержимое файла
+      ansible.builtin.command: cat ./test.txt
+      register: file_content
+
+    - name: Вывести содержимое файла
+      ansible.builtin.debug:
+        var: file_content.stdout
+
+    - name: Удалить файл
+      ansible.builtin.file:
+        path: ./test.txt
+        state: absent

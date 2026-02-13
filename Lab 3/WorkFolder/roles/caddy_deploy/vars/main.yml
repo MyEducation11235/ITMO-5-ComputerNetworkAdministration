@@ -1,0 +1,8 @@
+---
+# vars file for caddy_deploy
+
+domain_name: localhost
+
+log: # Можно поиграться со значениями
+  file: /var/log/caddy/cadde_access.log
+  level: "INFO"

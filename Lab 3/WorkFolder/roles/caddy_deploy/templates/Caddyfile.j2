@@ -1,0 +1,17 @@
+{{ domain_name }} {
+  root * /var/www/{{ domain_name }}
+  file_server
+
+  # Добавляем заголовки безопасности (пример)
+  header / {
+    X-Content-Type-Options nosniff
+    X-Frame-Options DENY
+    Referrer-Policy no-referrer-when-downgrade
+  }
+
+  log {
+    output file {{ log.file }}
+    format json
+    level {{ log.level }}
+  }
+}

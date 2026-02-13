@@ -20,13 +20,17 @@
 
 `ansible --version`
 
-![](ReportPhoto/withConfig.png)
+![](ReportPhoto/installAnsible.png)
 
 После создания конфигов, проверяем, что они подцепились
 
-![](ReportPhoto/installAnsible.png)
+![](ReportPhoto/withConfig.png)
 
 Проверяем, что сервер с Ansible подключился к “клиенту” (в нашем случае это одна и та же машина, localhost)
+
+`ansible my_servers -m ping -c local`
+
+`ansible my_servers -m setup -c local`
 
 ![](ReportPhoto/checkAnsimble.png)
 
